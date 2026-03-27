@@ -70,6 +70,38 @@ print(g.bestPath("A", "D"))
 print(g.isCyclic())
 ```
 
+## 📊 Visualizations
+
+### Weighted Sample Graph
+
+```mermaid
+graph LR
+	A((A)) -- "1" --- B((B))
+	A -- "4" --- C((C))
+	B -- "2" --- C
+	B -- "5" --- D((D))
+	C -- "1" --- D
+```
+
+### MST (Prim/Kruskal Output)
+
+```mermaid
+graph LR
+	A((A)) -- "1" --- B((B))
+	B -- "2" --- C((C))
+	C -- "1" --- D((D))
+```
+
+### Unweighted Sample Graph
+
+```mermaid
+graph TD
+	A((A)) --> B((B))
+	A --> C((C))
+	B --> D((D))
+	C --> D
+```
+
 ## Notes
 
 - `dijkstra` raises an exception if any edge has a negative weight.
