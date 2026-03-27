@@ -4,6 +4,7 @@
     a list of nodes (node_value, weight) that are reachable from
     that node 'n'."""
 from copy import deepcopy as dc
+import heapq
 
 class WGraph(object):
     """ Weighted Graph implementation """
@@ -16,169 +17,207 @@ class WGraph(object):
         self.is_cyclic = None
 
     def unoriented(self):
-        #Create a corresponding unoriented graph
-        unoriented_g = dc(self.graph)
-        for r in unoriented_g.keys():
-            for n in unoriented_g[r]:
-                found = False
-                for m in unoriented_g[n[0]]:
-                    if m[0] == r:
-                        found = True
-                if not found:
-                    unoriented_g[n[0]].append((r,None))
-
+        """Create an undirected version of the graph."""
+        unoriented_g = {k: list(v) for k, v in dc(self.graph).items()}
+        for src, childs in self.graph.items():
+            for dst, weight in childs:
+                if dst not in unoriented_g:
+                    unoriented_g[dst] = []
+                if not any(n == src for n, _ in unoriented_g[dst]):
+                    unoriented_g[dst].append((src, weight))
         return unoriented_g
 
     def isCyclic(self):
-        """ Check if the graph has a cycle or not """
-        #Create a corresponding unoriented graph
+        """Check if the undirected view of the graph has any cycle."""
         unoriented_g = self.unoriented()
+        visited = set()
 
-        nodes = {i:None for i in self.graph.keys()}
-        nodes[nodes.keys()[0]] = 0
-        fifo = [nodes.keys()[0]]
+        for start in unoriented_g:
+            if start in visited:
+                continue
 
-        while len(fifo) != 0:
-            node = fifo.pop()
-
-            for n in [m[0] for m in unoriented_g[node]]:
-                if nodes[n] >= nodes[node]:
+            stack = [(start, None)]
+            while stack:
+                node, parent = stack.pop()
+                if node in visited:
                     self.is_cyclic = True
                     return True
 
-                elif nodes[n] == None:
-                    nodes[n] = nodes[node] + 1
-                    fifo.insert(0, n)
+                visited.add(node)
+                for neigh, _ in unoriented_g.get(node, []):
+                    if neigh != parent:
+                        stack.append((neigh, node))
 
         self.is_cyclic = False
         return False
 
     def kruskal(self):
-        #get all edges with their weights
-        edges = []
-        for p in self.graph.keys():
-            for n in self.graph[p]:
-                edges.append((p,n[0],n[1]))
+        """Compute a minimum spanning tree using Kruskal (undirected)."""
+        # Keep a single undirected edge per node pair with minimum weight.
+        best = {}
+        for src, childs in self.graph.items():
+            for dst, weight in childs:
+                if src == dst:
+                    continue
+                edge_key = tuple(sorted((src, dst)))
+                if edge_key not in best or weight < best[edge_key]:
+                    best[edge_key] = weight
 
-        m = len(edges)
-        n = len(self.graph.keys())
-        edges = sorted(edges, key=lambda x: x[2])
-        f = []
+        edges = sorted(
+            [(u, v, w) for (u, v), w in best.items()],
+            key=lambda x: x[2]
+        )
 
-        k = {key:[] for key in self.graph.keys()}
+        parent = {node: node for node in self.graph}
+        rank = {node: 0 for node in self.graph}
 
-        for e in edges:
-            if e[0] not in f or e[1] not in f:
-                k[e[0]].append((e[1],e[2]))
-                f.append(e[0])
-                f.append(e[1])
+        def find(node):
+            while parent[node] != node:
+                parent[node] = parent[parent[node]]
+                node = parent[node]
+            return node
 
-            if len(f) > n-1:
-                break
+        def union(a, b):
+            root_a = find(a)
+            root_b = find(b)
+            if root_a == root_b:
+                return False
+            if rank[root_a] < rank[root_b]:
+                parent[root_a] = root_b
+            elif rank[root_a] > rank[root_b]:
+                parent[root_b] = root_a
+            else:
+                parent[root_b] = root_a
+                rank[root_a] += 1
+            return True
 
-        return WGraph(k)
+        mst = {node: [] for node in self.graph}
+        added = 0
+        for src, dst, weight in edges:
+            if union(src, dst):
+                mst[src].append((dst, weight))
+                mst[dst].append((src, weight))
+                added += 1
+                if added == len(self.graph) - 1:
+                    break
+
+        return WGraph(mst)
 
     def prim(self):
-
+        """Compute a minimum spanning tree using Prim (undirected)."""
         unoriented_g = self.unoriented()
+        if not unoriented_g:
+            return WGraph({})
 
-        v = self.graph.keys()
-        u = [self.graph.keys()[0],]
-        f = []
+        start = next(iter(unoriented_g))
+        visited = {start}
+        heap = []
+        for neigh, weight in unoriented_g[start]:
+            heapq.heappush(heap, (weight, start, neigh))
 
-        while len(v) != len(u):
-            edges = []
-            for p in u:
-                for n in self.graph[p]:
-                    if n[0] not in u:
-                        edges.append((p,n[0],n[1]))
-            edges = sorted(edges, key=lambda x: x[2])
-            f.append(edges[0])
-            u.append(edges[0][1])
+        mst = {node: [] for node in unoriented_g}
+        while heap and len(visited) < len(unoriented_g):
+            weight, src, dst = heapq.heappop(heap)
+            if dst in visited:
+                continue
 
-        n_graph = {key:[] for key in u}
-        for e in f:
-            n_graph[e[0]].append((e[1], e[2]))
+            visited.add(dst)
+            mst[src].append((dst, weight))
+            mst[dst].append((src, weight))
 
-        return WGraph(n_graph)
+            for next_node, next_weight in unoriented_g[dst]:
+                if next_node not in visited:
+                    heapq.heappush(heap, (next_weight, dst, next_node))
+
+        if len(visited) != len(unoriented_g):
+            raise Exception("Graph is disconnected; Prim requires a connected graph")
+
+        return WGraph(mst)
 
     def dijkstra(self, root):
-        graph = self.graph
-        for childs in graph.values():
-            for c in childs:
-                if c[1] < 0:
+        """Return shortest paths from root using Dijkstra's algorithm."""
+        if root not in self.graph:
+            raise KeyError("Unknown root node")
+
+        for childs in self.graph.values():
+            for _, weight in childs:
+                if weight < 0:
                     raise Exception("Negative weight")
 
-        length = len(graph.keys())
-        paths = {root: (root, 0)}
-        visited = set([root,])
-        curr = root
-        cmp = {}
+        dist = {node: float("inf") for node in self.graph}
+        prev = {root: None}
+        dist[root] = 0.0
+        visited = set()
+        heap = [(0.0, root)]
 
-        while len(visited) != length:
-            childs = graph[curr]
-            for c in childs:
-                if c[0] not in visited:
-                    if c[0] not in cmp.keys():
-                        cmp[c[0]] = (curr, c[1] + paths[curr][1])
-                    elif cmp[c[0]][1] > c[1] + paths[curr][1]:
-                        cmp[c[0]] = (curr, c[1] + paths[curr][1])
+        while heap:
+            current_dist, node = heapq.heappop(heap)
+            if node in visited:
+                continue
+            visited.add(node)
 
-            sor = sorted([i for i in zip(cmp.keys(), cmp.values())],\
-                         key=lambda t:t[1])
-            curr = sor[-1]
-            paths[curr[0]] = (curr[1][0], curr[1][1])
-
-            curr = curr[0]
-            visited.add(curr)
-            del(cmp[curr])
+            for neigh, weight in self.graph.get(node, []):
+                new_dist = current_dist + weight
+                if new_dist < dist.get(neigh, float("inf")):
+                    dist[neigh] = new_dist
+                    prev[neigh] = node
+                    heapq.heappush(heap, (new_dist, neigh))
 
         result = {}
-        for p in paths.keys():
-            tmp = [p,]
-            c = paths[p]
-            while True:
-                tmp.append(c[0])
-                if c[0] == root:
-                    break
-                c = paths[c[0]]
-            result[p] = (list(set(tmp[::-1])), paths[p][1])
+        for node, node_dist in dist.items():
+            if node_dist == float("inf"):
+                continue
+
+            path = []
+            cursor = node
+            while cursor is not None:
+                path.append(cursor)
+                cursor = prev.get(cursor)
+
+            result[node] = (path[::-1], node_dist)
 
         return result
 
     def bellman_ford(self, root):
-        graph = self.graph
+        """Return shortest paths from root using Bellman-Ford."""
+        if root not in self.graph:
+            raise KeyError("Unknown root node")
 
-        length = len(graph.keys())
-        paths = {root: (root, 0)}
-        curr = root
-        cmp = paths
-        count = 0
-        old = {}
+        nodes = list(self.graph.keys())
+        dist = {node: float("inf") for node in nodes}
+        prev = {root: None}
+        dist[root] = 0.0
 
-        while old != cmp:#len(visited) != lengt:
-            old = dc(cmp)
-            count += 1
-            if count > len(graph.keys()):
-                raise Exception("Circuit detected")
+        edges = []
+        for src, childs in self.graph.items():
+            for dst, weight in childs:
+                edges.append((src, dst, weight))
 
-            for curr in graph.keys():
-                childs = graph[curr]
-                for c in childs:
-                    if c[0] not in cmp.keys():
-                        cmp[c[0]] = (curr, c[1] + paths[curr][1])
-                    elif cmp[c[0]][1] > c[1] + paths[curr][1]:
-                        cmp[c[0]] = (curr, c[1] + paths[curr][1])
+        for _ in range(len(nodes) - 1):
+            updated = False
+            for src, dst, weight in edges:
+                if dist[src] != float("inf") and dist[src] + weight < dist.get(dst, float("inf")):
+                    dist[dst] = dist[src] + weight
+                    prev[dst] = src
+                    updated = True
+            if not updated:
+                break
+
+        for src, dst, weight in edges:
+            if dist[src] != float("inf") and dist[src] + weight < dist.get(dst, float("inf")):
+                raise Exception("Negative cycle detected")
 
         result = {}
-        for p in paths.keys():
-            tmp = [p,]
-            c = paths[p]
-            while True:
-                tmp.append(c[0])
-                if c[0] == root:
-                    break
-                c = paths[c[0]]
-            result[p] = (tmp[::-1], paths[p][1])
+        for node, node_dist in dist.items():
+            if node_dist == float("inf"):
+                continue
+
+            path = []
+            cursor = node
+            while cursor is not None:
+                path.append(cursor)
+                cursor = prev.get(cursor)
+
+            result[node] = (path[::-1], node_dist)
 
         return result
